@@ -50,7 +50,7 @@ DATE_COLS = ["issue_date", "judgment_entry_date"]
 CATEGORICAL_COLS = ["county", "state", "license_type", "issuing_agency", "violation_status"]
 
 # Key financial + time fields — rows missing ALL of these will be dropped
-KEY_FIELDS = ["fine_amount", "penalty_amount", "payment_amount", "amount_due", "issue_date"]
+KEY_FIELDS = ["violation_time", "violation", "fine_amount", "penalty_amount", "interest_amount", "reduction_amount", "payment_amount", "amount_due", "issue_date", "precinct"]
 
 # =============================================================================
 # TRACKING VARIABLES (for summary report at the end)
@@ -160,7 +160,7 @@ def clean_data(df):
     before = len(df)
     df.dropna(subset=key_cols_present, how="all", inplace=True)
     dropped = before - len(df)
-    print(f"     Dropped {dropped:,} completely empty rows. Remaining: {len(df):,}")
+    print(f"Dropped {dropped:,} completely empty rows. Remaining: {len(df):,}")
 
     # ---- 3d. Convert numeric columns safely ----
     print("[3d] Converting numeric columns to float...")
@@ -172,7 +172,7 @@ def clean_data(df):
             after_nulls = df[col].isnull().sum()
             new_nulls = after_nulls - before_nulls
             if new_nulls > 0:
-                print(f"     '{col}': {new_nulls} non-numeric values coerced to NaN")
+                print(f"'{col}': {new_nulls} non-numeric values coerced to NaN")
 
     # ---- 3e. Convert date columns safely ----
     print("[3e] Converting date columns to datetime...")
@@ -180,7 +180,7 @@ def clean_data(df):
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors="coerce")
             nulls = df[col].isnull().sum()
-            print(f"     '{col}': {nulls:,} unparseable dates set to NaT")
+            print(f"'{col}': {nulls:,} unparseable dates set to NaT")
 
     # ---- 3f. Standardize county values ----
     # Raw data mixes abbreviations and full names for the same NYC borough.
@@ -213,7 +213,7 @@ def clean_data(df):
         )
         # Values not found in the map become NaN -> will be filled as "Unknown" below
         still_unknown = df["county"].isnull().sum()
-        print(f"     {still_unknown:,} county values could not be mapped -> will be 'Unknown'")
+        print(f"{still_unknown:,} county values could not be mapped -> will be 'Unknown'")
 
     # ---- 3g. Standardize other categorical columns (upper-case trim) ----
     print("[3g] Standardizing other categorical columns...")
@@ -233,7 +233,7 @@ def clean_data(df):
                 col_mean = df[col].mean()
                 df[col].fillna(col_mean, inplace=True)
                 missing_handled += null_count
-                print(f"     '{col}': filled {null_count:,} NaNs with mean ({col_mean:.2f})")
+                print(f"'{col}': filled {null_count:,} NaNs with mean ({col_mean:.2f})")
 
     # Categorical -> fill with "Unknown"
     for col in CATEGORICAL_COLS + ["violation", "violation_time"]:
@@ -242,7 +242,7 @@ def clean_data(df):
             if null_count > 0:
                 df[col].fillna("UNKNOWN", inplace=True)
                 missing_handled += null_count
-                print(f"     '{col}': filled {null_count:,} NaNs with 'UNKNOWN'")
+                print(f"'{col}': filled {null_count:,} NaNs with 'UNKNOWN'")
 
     # Date columns — we can't impute dates meaningfully, leave as NaT
     # (time features derived from these will simply be NaN for those rows)
@@ -419,9 +419,9 @@ def engineer_features(df):
             df[col] = df[col].fillna("UNKNOWN")
             df[encoded_col] = le.fit_transform(df[col].astype(str))
             new_features.append(encoded_col)
-            print(f"  '{col}' -> '{encoded_col}'  ({df[col].nunique()} unique values)")
+            print(f"'{col}' -> '{encoded_col}'  ({df[col].nunique()} unique values)")
         else:
-            print(f"  [SKIP] '{col}' not found.")
+            print(f"[SKIP] '{col}' not found.")
 
     print(f"\n[Feature Engineering complete]  {len(new_features)} new features created.")
     return df
@@ -472,7 +472,7 @@ def build_and_save_outputs(df):
     model_df.to_csv(OUTPUT_MODEL_READY, index=False)
     print(f"[3] Saved model-ready features -> '{OUTPUT_MODEL_READY}'  "
           f"({model_df.shape[1]} features, {len(model_df):,} rows)")
-    print(f"    Columns: {list(model_df.columns)}")
+    print(f"Columns: {list(model_df.columns)}")
 
     # ---- Output 4: Clustering features (for K-Means) ----
     # K-Means needs purely numeric, non-NaN data.
@@ -491,7 +491,7 @@ def build_and_save_outputs(df):
     cluster_df.to_csv(OUTPUT_CLUSTERING, index=False)
     print(f"[4] Saved clustering features -> '{OUTPUT_CLUSTERING}'  "
           f"({cluster_df.shape[1]} features, {len(cluster_df):,} rows)")
-    print(f"    Columns: {list(cluster_df.columns)}")
+    print(f"Columns: {list(cluster_df.columns)}")
 
     return model_df, cluster_df
 
@@ -507,18 +507,18 @@ def print_summary(model_df, cluster_df):
     print("STEP 7: SUMMARY REPORT")
     print("="*60)
 
-    print(f"\n  Original shape: {original_shape[0]:,} rows x {original_shape[1]} columns")
-    print(f"  After cleaning: {cleaned_shape[0]:,} rows x {cleaned_shape[1]} columns")
-    print(f"  Final engineered shape: {final_shape[0]:,} rows x {final_shape[1]} columns")
-    print(f"\n  Missing values handled: {missing_handled:,}")
-    print(f"  Outliers capped: {outliers_capped:,}")
-    print(f"\n  New features created ({len(new_features)}):")
+    print(f"\n Original shape: {original_shape[0]:,} rows x {original_shape[1]} columns")
+    print(f" After cleaning: {cleaned_shape[0]:,} rows x {cleaned_shape[1]} columns")
+    print(f" Final engineered shape: {final_shape[0]:,} rows x {final_shape[1]} columns")
+    print(f"\n Missing values handled: {missing_handled:,}")
+    print(f" Outliers capped: {outliers_capped:,}")
+    print(f"\n New features created ({len(new_features)}):")
     for feat in new_features:
         print(f"    + {feat}")
 
-    print(f"\n  Model-ready features: {model_df.shape[1]} columns")
-    print(f"  Clustering features: {cluster_df.shape[1]} columns")
-    print("\n  Output files saved:")
+    print(f"\n Model-ready features: {model_df.shape[1]} columns")
+    print(f" Clustering features: {cluster_df.shape[1]} columns")
+    print("\n Output files saved:")
     print(f" -> {OUTPUT_ENGINEERED}")
     print(f" -> {OUTPUT_MODEL_READY}")
     print(f" -> {OUTPUT_CLUSTERING}")
