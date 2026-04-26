@@ -5,7 +5,7 @@
 # =============================================================================
 # PURPOSE:
 #   This script is Step 3 in the data pipeline:
-#   Extract → Transform/Load (ETL) → [THIS SCRIPT] Feature Engineering → Modeling
+#   Extract -> Transform/Load (ETL) -> [THIS SCRIPT] Feature Engineering -> Modeling
 #
 #   It takes the already-loaded violations data (from CSV / PostgreSQL export),
 #   cleans it for modeling purposes, engineers new features, and saves output files
@@ -112,7 +112,7 @@ def inspect_data(df):
     missing_df = pd.DataFrame({"Missing Count": missing, "Missing %": missing_pct})
     missing_df = missing_df[missing_df["Missing Count"] > 0]
     if missing_df.empty:
-        print("  No missing values found.")
+        print("No missing values found.")
     else:
         print(missing_df.to_string())
 
@@ -211,9 +211,9 @@ def clean_data(df):
         df["county"] = df["county"].str.upper().map(
             {k.upper(): v for k, v in county_map.items()}
         )
-        # Values not found in the map become NaN → will be filled as "Unknown" below
+        # Values not found in the map become NaN -> will be filled as "Unknown" below
         still_unknown = df["county"].isnull().sum()
-        print(f"     {still_unknown:,} county values could not be mapped → will be 'Unknown'")
+        print(f"     {still_unknown:,} county values could not be mapped -> will be 'Unknown'")
 
     # ---- 3g. Standardize other categorical columns (upper-case trim) ----
     print("[3g] Standardizing other categorical columns...")
@@ -224,7 +224,7 @@ def clean_data(df):
     # ---- 3h. Handle missing values ----
     print("[3h] Imputing missing values...")
 
-    # Numeric → fill with column mean
+    # Numeric -> fill with column mean
     # Mean imputation is simple, preserves column statistics, and keeps row count intact.
     for col in NUMERIC_COLS:
         if col in df.columns:
@@ -235,7 +235,7 @@ def clean_data(df):
                 missing_handled += null_count
                 print(f"     '{col}': filled {null_count:,} NaNs with mean ({col_mean:.2f})")
 
-    # Categorical → fill with "Unknown"
+    # Categorical -> fill with "Unknown"
     for col in CATEGORICAL_COLS + ["violation", "violation_time"]:
         if col in df.columns:
             null_count = df[col].isnull().sum()
@@ -351,7 +351,7 @@ def engineer_features(df):
         new_features.extend(time_feats)
         print(f"  Created: {time_feats}")
     else:
-        print("  [SKIP] 'issue_date' column not found.")
+        print("[SKIP] 'issue_date' column not found.")
 
     # -------------------------------------------------------
     # 5B. FINANCIAL FEATURES
@@ -365,13 +365,13 @@ def engineer_features(df):
             df["fine_amount"] + df["penalty_amount"] + df["interest_amount"]
         )
         new_features.append("total_charges")
-        print("  Created: total_charges = fine + penalty + interest")
+        print("Created: total_charges = fine + penalty + interest")
 
     # net_paid: how much was actually paid after any reduction
     if all(c in df.columns for c in ["payment_amount","reduction_amount"]):
         df["net_paid"] = df["payment_amount"] - df["reduction_amount"]
         new_features.append("net_paid")
-        print("  Created: net_paid = payment - reduction")
+        print("Created: net_paid = payment - reduction")
 
     # unpaid_balance_ratio: proportion of charges still owed
     # (0 = fully paid, 1 = nothing paid, >1 shouldn't happen but we guard for it)
@@ -383,7 +383,7 @@ def engineer_features(df):
             axis=1
         )
         new_features.append("unpaid_balance_ratio")
-        print("  Created: unpaid_balance_ratio = amount_due / total_charges")
+        print("Created: unpaid_balance_ratio = amount_due / total_charges")
 
     # -------------------------------------------------------
     # 5C. CLASSIFICATION TARGET VARIABLE
@@ -399,7 +399,7 @@ def engineer_features(df):
         print(f"  Created: high_fine_flag  (median fine = ${median_fine:.2f})")
         print(f"  Distribution: {df['high_fine_flag'].value_counts().to_dict()}")
     else:
-        print("  [SKIP] 'fine_amount' column not found.")
+        print("[SKIP] 'fine_amount' column not found.")
 
     # -------------------------------------------------------
     # 5D. CATEGORICAL ENCODING
@@ -419,7 +419,7 @@ def engineer_features(df):
             df[col] = df[col].fillna("UNKNOWN")
             df[encoded_col] = le.fit_transform(df[col].astype(str))
             new_features.append(encoded_col)
-            print(f"  '{col}' → '{encoded_col}'  ({df[col].nunique()} unique values)")
+            print(f"  '{col}' -> '{encoded_col}'  ({df[col].nunique()} unique values)")
         else:
             print(f"  [SKIP] '{col}' not found.")
 
@@ -434,10 +434,10 @@ def engineer_features(df):
 def build_and_save_outputs(df):
     """
     Create three output files:
-      1. cleaned_violations.csv              — clean data before feature engineering
+      1. cleaned_violations.csv     — clean data before feature engineering
       2. feature_engineered_violations.csv  — full dataset with all new features
-      3. model_ready_features.csv           — cleaned up for RF / XGBoost (no IDs, no raw dates)
-      4. clustering_features.csv            — numeric-only subset for K-Means
+      3. model_ready_features.csv   — cleaned up for RF / XGBoost (no IDs, no raw dates)
+      4. clustering_features.csv    — numeric-only subset for K-Means
     """
     print("\n" + "="*60)
     print("STEP 6: SAVING OUTPUT FILES")
@@ -448,11 +448,11 @@ def build_and_save_outputs(df):
     # can inspect what the data looked like before feature columns were added.
     cleaned_cols = [c for c in df.columns if c not in new_features]
     df[cleaned_cols].to_csv(OUTPUT_CLEANED, index=False)
-    print(f"[1] Saved cleaned dataset         → '{OUTPUT_CLEANED}'  ({len(df):,} rows, {len(cleaned_cols)} columns)")
+    print(f"[1] Saved cleaned dataset -> '{OUTPUT_CLEANED}'  ({len(df):,} rows, {len(cleaned_cols)} columns)")
     
     # ---- Output 2: Full engineered dataset ----
     df.to_csv(OUTPUT_ENGINEERED, index=False)
-    print(f"[2] Saved full engineered dataset → '{OUTPUT_ENGINEERED}'  ({len(df):,} rows)")
+    print(f"[2] Saved full engineered dataset -> '{OUTPUT_ENGINEERED}'  ({len(df):,} rows)")
 
     # ---- Output 3: Model-ready features (for Random Forest / XGBoost) ----
     # Drop high-cardinality ID columns (plate, summons_number) — these are
@@ -470,7 +470,7 @@ def build_and_save_outputs(df):
     # Keep only numeric columns for clean model input
     model_df = model_df.select_dtypes(include=[np.number])
     model_df.to_csv(OUTPUT_MODEL_READY, index=False)
-    print(f"[3] Saved model-ready features    → '{OUTPUT_MODEL_READY}'  "
+    print(f"[3] Saved model-ready features -> '{OUTPUT_MODEL_READY}'  "
           f"({model_df.shape[1]} features, {len(model_df):,} rows)")
     print(f"    Columns: {list(model_df.columns)}")
 
@@ -489,7 +489,7 @@ def build_and_save_outputs(df):
     clustering_cols = [c for c in clustering_candidates if c in df.columns]
     cluster_df = df[clustering_cols].dropna()
     cluster_df.to_csv(OUTPUT_CLUSTERING, index=False)
-    print(f"[4] Saved clustering features     → '{OUTPUT_CLUSTERING}'  "
+    print(f"[4] Saved clustering features -> '{OUTPUT_CLUSTERING}'  "
           f"({cluster_df.shape[1]} features, {len(cluster_df):,} rows)")
     print(f"    Columns: {list(cluster_df.columns)}")
 
@@ -507,21 +507,21 @@ def print_summary(model_df, cluster_df):
     print("STEP 7: SUMMARY REPORT")
     print("="*60)
 
-    print(f"\n  Original shape         : {original_shape[0]:,} rows x {original_shape[1]} columns")
-    print(f"  After cleaning         : {cleaned_shape[0]:,} rows x {cleaned_shape[1]} columns")
-    print(f"  Final engineered shape : {final_shape[0]:,} rows x {final_shape[1]} columns")
-    print(f"\n  Missing values handled : {missing_handled:,}")
-    print(f"  Outliers capped        : {outliers_capped:,}")
+    print(f"\n  Original shape: {original_shape[0]:,} rows x {original_shape[1]} columns")
+    print(f"  After cleaning: {cleaned_shape[0]:,} rows x {cleaned_shape[1]} columns")
+    print(f"  Final engineered shape: {final_shape[0]:,} rows x {final_shape[1]} columns")
+    print(f"\n  Missing values handled: {missing_handled:,}")
+    print(f"  Outliers capped: {outliers_capped:,}")
     print(f"\n  New features created ({len(new_features)}):")
     for feat in new_features:
         print(f"    + {feat}")
 
-    print(f"\n  Model-ready features   : {model_df.shape[1]} columns")
-    print(f"  Clustering features    : {cluster_df.shape[1]} columns")
+    print(f"\n  Model-ready features: {model_df.shape[1]} columns")
+    print(f"  Clustering features: {cluster_df.shape[1]} columns")
     print("\n  Output files saved:")
-    print(f"    → {OUTPUT_ENGINEERED}")
-    print(f"    → {OUTPUT_MODEL_READY}")
-    print(f"    → {OUTPUT_CLUSTERING}")
+    print(f" -> {OUTPUT_ENGINEERED}")
+    print(f" -> {OUTPUT_MODEL_READY}")
+    print(f" -> {OUTPUT_CLUSTERING}")
     print("\n" + "="*60)
     print("Feature engineering complete!")
     print("="*60 + "\n")
