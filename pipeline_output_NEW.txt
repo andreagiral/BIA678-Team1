@@ -1,0 +1,187 @@
+
+============================================================
+STEP 1: LOADING DATA
+============================================================
+[OK] Data loaded successfully from: DATA_2026-04-36.csv
+     Rows: 1,000  |  Columns: 18
+
+============================================================
+STEP 2: INITIAL DATA INSPECTION
+============================================================
+
+[Shape]  1,000 rows x 18 columns
+
+[Columns]
+  - plate
+  - state
+  - license_type
+  - summons_number
+  - issue_date
+  - violation_time
+  - violation
+  - fine_amount
+  - penalty_amount
+  - interest_amount
+  - reduction_amount
+  - payment_amount
+  - amount_due
+  - precinct
+  - county
+  - issuing_agency
+  - violation_status
+  - judgment_entry_date
+
+[Missing Values per Column]
+                     Missing Count  Missing %
+violation_time                  18        1.8
+violation                       18        1.8
+fine_amount                     18        1.8
+penalty_amount                  18        1.8
+interest_amount                 18        1.8
+reduction_amount                18        1.8
+payment_amount                  18        1.8
+amount_due                      18        1.8
+precinct                        18        1.8
+county                         119       11.9
+issuing_agency                  18        1.8
+violation_status               923       92.3
+judgment_entry_date            929       92.9
+
+[Data Types]
+plate                  object
+state                  object
+license_type           object
+summons_number         object
+issue_date             object
+violation_time         object
+violation              object
+fine_amount            object
+penalty_amount         object
+interest_amount        object
+reduction_amount       object
+payment_amount         object
+amount_due             object
+precinct               object
+county                 object
+issuing_agency         object
+violation_status       object
+judgment_entry_date    object
+
+[Unique County Values (raw)]
+  ['QN' 'NY' 'BK' 'Kings' 'K' 'BX' 'MN' 'ST' 'Qns' 'Q' 'Bronx' 'R']
+
+============================================================
+STEP 3: DATA CLEANING
+============================================================
+
+[3a] Stripping whitespace from string columns...
+[3b] Replacing empty strings / placeholders with NaN...
+[3c] Dropping rows where ALL key fields are missing...
+Dropped 0 completely empty rows. Remaining: 1,000
+[3d] Converting numeric columns to float...
+[3e] Converting date columns to datetime...
+'issue_date': 0 unparseable dates set to NaT
+'judgment_entry_date': 929 unparseable dates set to NaT
+[3f] Standardizing inconsistent county values...
+119 county values could not be mapped -> will be 'Unknown'
+[3g] Standardizing other categorical columns...
+[3h] Imputing missing values...
+'fine_amount': filled 18 NaNs with mean (59.94)
+'penalty_amount': filled 18 NaNs with mean (4.76)
+'interest_amount': filled 18 NaNs with mean (1.03)
+'reduction_amount': filled 18 NaNs with mean (1.84)
+'payment_amount': filled 18 NaNs with mean (63.78)
+'amount_due': filled 18 NaNs with mean (0.11)
+'county': filled 119 NaNs with 'UNKNOWN'
+'issuing_agency': filled 18 NaNs with 'UNKNOWN'
+'violation_status': filled 923 NaNs with 'UNKNOWN'
+'violation': filled 18 NaNs with 'UNKNOWN'
+'violation_time': filled 18 NaNs with 'UNKNOWN'
+
+[Cleaning done]  Rows remaining: 1,000
+
+============================================================
+STEP 4: OUTLIER HANDLING (Z-SCORE CAPPING)
+============================================================
+  'fine_amount': 14 outliers capped [35.00, 150.00]
+  'penalty_amount': 27 outliers capped [0.00, 60.00]
+  'interest_amount': 9 outliers capped [0.00, 18.13]
+  'reduction_amount': 16 outliers capped [0.00, 55.10]
+  'payment_amount': 24 outliers capped [0.00, 201.26]
+  'amount_due': 1 outliers capped [0.00, 0.11]
+
+============================================================
+STEP 5: FEATURE ENGINEERING
+============================================================
+
+[5A] Extracting time features from issue_date...
+  Created: ['issue_year', 'issue_month', 'issue_day', 'issue_dayofweek', 'issue_quarter', 'is_weekend']
+
+[5B] Creating financial features...
+Created: total_charges = fine + penalty + interest
+Created: net_paid = payment - reduction
+Created: unpaid_balance_ratio = amount_due / total_charges
+
+[5C] Creating classification target: high_fine_flag...
+  Created: high_fine_flag  (median fine = $50.00)
+  Distribution: {0: 705, 1: 295}
+
+[5D] Encoding categorical columns (Label Encoding)...
+'county' -> 'county_encoded'  (6 unique values)
+'state' -> 'state_encoded'  (26 unique values)
+'license_type' -> 'license_type_encoded'  (12 unique values)
+'issuing_agency' -> 'issuing_agency_encoded'  (9 unique values)
+'violation_status' -> 'violation_status_encoded'  (7 unique values)
+
+[Feature Engineering complete]  15 new features created.
+
+============================================================
+STEP 6: SAVING OUTPUT FILES
+============================================================
+[1] Saved cleaned dataset -> 'cleaned_violations.csv'  (1,000 rows, 18 columns)
+[2] Saved full engineered dataset -> 'feature_engineered_violations.csv'  (1,000 rows)
+[3] Saved model-ready features -> 'model_ready_features.csv'  (21 features, 1,000 rows)
+Columns: ['fine_amount', 'penalty_amount', 'interest_amount', 'reduction_amount', 'payment_amount', 'amount_due', 'issue_year', 'issue_month', 'issue_day', 'issue_dayofweek', 'issue_quarter', 'is_weekend', 'total_charges', 'net_paid', 'unpaid_balance_ratio', 'high_fine_flag', 'county_encoded', 'state_encoded', 'license_type_encoded', 'issuing_agency_encoded', 'violation_status_encoded']
+[4] Saved clustering features -> 'clustering_features.csv'  (18 features, 1,000 rows)
+Columns: ['fine_amount', 'penalty_amount', 'interest_amount', 'payment_amount', 'amount_due', 'total_charges', 'net_paid', 'unpaid_balance_ratio', 'issue_year', 'issue_month', 'issue_day', 'issue_dayofweek', 'issue_quarter', 'is_weekend', 'county_encoded', 'issuing_agency_encoded', 'violation_status_encoded', 'license_type_encoded']
+
+============================================================
+STEP 7: SUMMARY REPORT
+============================================================
+
+ Original shape: 1,000 rows x 18 columns
+ After cleaning: 1,000 rows x 18 columns
+ Final engineered shape: 1,000 rows x 33 columns
+
+ Missing values handled: 1,204
+ Outliers capped: 91
+
+ New features created (15):
+    + issue_year
+    + issue_month
+    + issue_day
+    + issue_dayofweek
+    + issue_quarter
+    + is_weekend
+    + total_charges
+    + net_paid
+    + unpaid_balance_ratio
+    + high_fine_flag
+    + county_encoded
+    + state_encoded
+    + license_type_encoded
+    + issuing_agency_encoded
+    + violation_status_encoded
+
+ Model-ready features: 21 columns
+ Clustering features: 18 columns
+
+ Output files saved:
+ -> feature_engineered_violations.csv
+ -> model_ready_features.csv
+ -> clustering_features.csv
+
+============================================================
+Feature engineering complete!
+============================================================
+
