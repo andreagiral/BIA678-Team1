@@ -1,0 +1,50 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+
+# 1. Load the dataset
+df = pd.read_csv('clustering_features.csv')
+
+# 2. Preprocessing: Standardize the data
+# Clustering is sensitive to scale; this ensures all features contribute equally
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(df)
+
+# 3. Determine optimal 'k' using the Elbow Method
+inertia = []
+K_range = range(1, 11)
+for k in K_range:
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    kmeans.fit(X_scaled)
+    inertia.append(kmeans.inertia_)
+
+plt.figure(figsize=(8, 4))
+plt.plot(K_range, inertia, marker='o')
+plt.xlabel('Number of clusters (k)')
+plt.ylabel('Inertia')
+plt.title('Elbow Method for Optimal Clusters')
+plt.show()
+
+# 4. Perform K-Means Clustering
+# Assuming k=3 based on common patterns in violation data
+k = 3
+kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+df['cluster'] = kmeans.fit_predict(X_scaled)
+
+# 5. Extract Revenue and Public Safety Insights
+# Calculate the mean of key metrics per cluster
+revenue_metrics = ['fine_amount', 'penalty_amount', 'interest_amount', 
+                   'payment_amount', 'amount_due', 'total_charges', 'net_paid']
+safety_metrics = ['violation_status_encoded', 'issuing_agency_encoded', 
+                  'county_encoded', 'license_type_encoded']
+
+cluster_analysis = df.groupby('cluster')[revenue_metrics + safety_metrics].mean()
+
+# Display the summary for insights
+print("Cluster Analysis Summary:")
+print(cluster_analysis)
+
+# 6. Save the results
+df.to_csv('clustered_data.csv', index=False)
+print("\nClustered data saved to 'clustered_data.csv'")
