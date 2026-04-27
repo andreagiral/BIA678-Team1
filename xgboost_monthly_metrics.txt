@@ -1,0 +1,34 @@
+XGBoost Monthly Time Series -- Evaluation Metrics
+==================================================
+
+Target            : monthly_violation_count
+Data window       : 2022-01-01 onward
+Training months   : 31
+Test months       : 8
+Train range       : 2022-09-01 to 2025-03-01
+Test range        : 2025-04-01 to 2025-11-01
+
+RMSE  : 57.9 violations
+MAE   : 45.4 violations
+R2    : -0.4315
+
+Feature Importance:
+  rolling_mean_3_count         0.3848
+  rolling_mean_6_count         0.1329
+  year                         0.1221
+  lag_1_count                  0.0711
+  rolling_std_3_count          0.0686
+  quarter                      0.0677
+  month                        0.0601
+  lag_6_count                  0.0503
+  lag_3_count                  0.0422
+
+Model Parameters:
+  n_estimators: 300
+  learning_rate: 0.05
+  max_depth: 3
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_weight: 2
+  random_state: 42
+  verbosity: 0

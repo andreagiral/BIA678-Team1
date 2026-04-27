@@ -1,437 +1,465 @@
-# =============================================================================
 # PURPOSE:
-#   Predict daily_total_charges (revenue) using XGBoost with time series features.
-#   This is Step 4 in the pipeline:
-#   ETL → Feature Engineering → [THIS SCRIPT] Time Series Modeling → Dashboard
+#   Predict monthly_violation_count using XGBoost with time series features.
 #
-# INPUT:
-#   feature_engineered_violations.csv  (from 3-feature_engineering branch)
+# WHY VIOLATION COUNT INSTEAD OF REVENUE?
+#   Revenue (total_charges) varies wildly per ticket — a $50 speed camera
+#   ticket vs a $200 street cleaning fine makes monthly revenue noisy.
+#   Violation count is a direct, consistent signal: every row in our dataset
+#   IS a violation, so counts are real and stable regardless of fine amount.
 #
-# OUTPUTS:
-#   xgboost_time_series_predictions.csv
-#   xgboost_time_series_metrics.txt
-#   xgboost_actual_vs_predicted.png
+# WHY FILTER TO 2022 ONWARD?
+#   The NYC API returns recent data much more densely than older data.
+#   Our 1,000 rows span 2017-2025, but 2017-2021 contributes only ~10 rows
+#   total — mostly 1-2 violations per month. Training on those near-zero
+#   months and testing on the dense 2024-2025 period means training and test
+#   look completely different, which guarantees bad predictions.
+#   Filtering to 2022+ gives us a consistent data density across the full
+#   train/test window (0-356 violations/month in both sets).
+#
+# PIPELINE:
+#   ETL -> Feature Engineering -> [THIS SCRIPT] -> Dashboard
+#
+# INPUT  : feature_engineered_violations.csv
+# OUTPUTS: xgboost_monthly_predictions.csv
+#          xgboost_monthly_metrics.txt
+#          xgboost_monthly_actual_vs_predicted.png
 # =============================================================================
- 
+
 import pandas as pd
 import numpy as np
 import matplotlib
-matplotlib.use("Agg")           # non-interactive backend (safe for all environments)
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import warnings
 import os
- 
+
 warnings.filterwarnings("ignore")
- 
+
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
- 
-INPUT_FILE          = "feature_engineered_violations.csv"
-OUTPUT_PREDICTIONS  = "xgboost_time_series_predictions.csv"
-OUTPUT_METRICS      = "xgboost_time_series_metrics.txt"
-OUTPUT_PLOT         = "xgboost_actual_vs_predicted.png"
- 
-TRAIN_RATIO = 0.80   # 80% train / 20% test (time-based, no shuffle)
-TARGET_COL  = "daily_total_charges"
- 
-# XGBoost hyperparameters
-# These are sensible defaults for a small dataset — see BONUS section at bottom
+
+INPUT_FILE         = "feature_engineered_violations.csv"
+OUTPUT_PREDICTIONS = "xgboost_monthly_predictions.csv"
+OUTPUT_METRICS     = "xgboost_monthly_metrics.txt"
+OUTPUT_PLOT        = "xgboost_monthly_actual_vs_predicted.png"
+
+TRAIN_RATIO  = 0.80
+TARGET_COL   = "monthly_violation_count"
+LOG_TARGET   = "log_monthly_violation_count"
+
+# Only use data from this date onward — avoids the sparse 2017-2021 period
+# where the API returned almost no rows, which would make training/test
+# distributions completely different.
+START_DATE   = "2022-01-01"
+
 XGBOOST_PARAMS = {
-    "n_estimators":    200,
-    "learning_rate":   0.05,
-    "max_depth":       4,
-    "subsample":       0.8,
+    "n_estimators":     300,
+    "learning_rate":    0.05,
+    "max_depth":        3,       # shallow = less overfitting on small data
+    "subsample":        0.8,
     "colsample_bytree": 0.8,
-    "random_state":    42,
-    "verbosity":       0,
+    "min_child_weight": 2,       # requires at least 2 samples per leaf
+    "random_state":     42,
+    "verbosity":        0,
 }
- 
- 
+
+
 # =============================================================================
 # STEP 1: LOAD DATA
 # =============================================================================
- 
+
 def load_data(filepath):
-    """Load the feature-engineered violations CSV."""
     print("\n" + "="*60)
     print("STEP 1: LOADING DATA")
     print("="*60)
- 
+
     if not os.path.exists(filepath):
         raise FileNotFoundError(
             f"[ERROR] '{filepath}' not found.\n"
-            "Make sure you ran:\n"
-            "  git checkout 4-modeling\n"
-            "  git checkout 3-feature_engineering -- feature_engineered_violations.csv"
+            "Run: git checkout 3-feature_engineering -- feature_engineered_violations.csv"
         )
- 
+
     df = pd.read_csv(filepath, low_memory=False)
     print(f"[OK] Loaded: {df.shape[0]:,} rows x {df.shape[1]} columns")
     return df
- 
- 
+
+
 # =============================================================================
-# STEP 2: CONVERT issue_date TO DATETIME
+# STEP 2: PARSE DATES + FILTER TO DENSE PERIOD
 # =============================================================================
- 
-def parse_dates(df):
-    """Convert issue_date to proper datetime so we can aggregate by day."""
-    print("\n[STEP 2] Parsing issue_date...")
- 
+
+def parse_and_filter(df):
+    print("\n" + "="*60)
+    print("STEP 2: PARSE DATES + FILTER TO 2022+")
+    print("="*60)
+
     if "issue_date" not in df.columns:
-        raise KeyError("[ERROR] 'issue_date' column not found in dataset.")
- 
+        raise KeyError("[ERROR] 'issue_date' column not found.")
+
     df["issue_date"] = pd.to_datetime(df["issue_date"], errors="coerce")
- 
-    bad_dates = df["issue_date"].isnull().sum()
-    if bad_dates > 0:
-        print(f"Dropped {bad_dates} rows with unparseable dates.")
-        df = df.dropna(subset=["issue_date"])
- 
-    print(f"Date range: {df['issue_date'].min().date()} -> {df['issue_date'].max().date()}")
+    df = df.dropna(subset=["issue_date"])
+
+    before = len(df)
+    df = df[df["issue_date"] >= START_DATE].copy()
+    after  = len(df)
+
+    print(f" Rows before filter: {before:,}")
+    print(f" Rows after 2022+ : {after:,}  (dropped {before - after:,} pre-2022 rows)")
+    print(f" Date range: {df['issue_date'].min().date()} to {df['issue_date'].max().date()}")
     return df
- 
- 
+
+
 # =============================================================================
-# STEP 3: AGGREGATE BY DAY
+# STEP 3: AGGREGATE BY MONTH + CONTINUOUS CALENDAR
 # =============================================================================
- 
-def aggregate_by_day(df):
+
+def aggregate_by_month(df):
     """
-    WHY AGGREGATE?
-    XGBoost time series works on a single timeline — one row per time step.
-    Our raw data has many rows per day (one per violation ticket).
-    We collapse them into daily totals so the model can learn:
-    "Given what revenue looked like the past N days, what will tomorrow look like?"
- 
-    We create three daily metrics:
-      - daily_total_charges  : total revenue generated that day (our TARGET)
-      - daily_violation_count: how many tickets were issued
-      - daily_avg_fine       : average fine amount per ticket
+    Aggregate individual violation rows into monthly totals.
+    Then reindex to a full monthly calendar so there are no gaps —
+    a missing month means 0 violations, not a skipped time step.
+    Without this, lag_1 could mean 'the previous month that had data'
+    instead of 'exactly 1 calendar month ago.'
     """
-    print("\n[STEP 3] Aggregating data by day...")
- 
-    # Make sure total_charges exists (it should from feature engineering)
-    if "total_charges" not in df.columns:
-        print("  [WARN] 'total_charges' not found — computing from fine+penalty+interest")
-        for col in ["fine_amount", "penalty_amount", "interest_amount"]:
-            if col not in df.columns:
-                df[col] = 0
-        df["total_charges"] = df["fine_amount"] + df["penalty_amount"] + df["interest_amount"]
- 
-    daily = df.groupby("issue_date").agg(
-        daily_total_charges  = ("total_charges", "sum"),
-        daily_violation_count= ("total_charges", "count"),
-        daily_avg_fine       = ("fine_amount",   "mean"),
+    print("\n" + "="*60)
+    print("STEP 3: MONTHLY AGGREGATION + CONTINUOUS CALENDAR")
+    print("="*60)
+
+    # Snap each row to the 1st of its month
+    df["issue_month"] = df["issue_date"].dt.to_period("M").dt.to_timestamp()
+
+    monthly = df.groupby("issue_month").agg(
+        monthly_violation_count = ("issue_date", "count"),
+        monthly_avg_fine        = ("fine_amount", "mean"),
     ).reset_index()
- 
-    # Sort chronologically — critical for time series
-    daily = daily.sort_values("issue_date").reset_index(drop=True)
- 
-    print(f"Daily time series: {len(daily)} days")
-    print(f"Date range:        {daily['issue_date'].min().date()} -> {daily['issue_date'].max().date()}")
-    print(f"Avg daily revenue: ${daily['daily_total_charges'].mean():,.2f}")
-    print(f"Max daily revenue: ${daily['daily_total_charges'].max():,.2f}")
- 
-    return daily
- 
- 
+
+    monthly = monthly.rename(columns={"issue_month": "issue_date"})
+    monthly = monthly.sort_values("issue_date").reset_index(drop=True)
+    observed_months = len(monthly)
+
+    # Reindex to full monthly calendar (no gaps)
+    monthly = monthly.set_index("issue_date")
+    full_range = pd.date_range(
+        start=monthly.index.min(),
+        end=monthly.index.max(),
+        freq="MS"
+    )
+    monthly = monthly.reindex(full_range)
+    monthly.index.name = "issue_date"
+
+    monthly["monthly_violation_count"] = monthly["monthly_violation_count"].fillna(0)
+    monthly["monthly_avg_fine"]        = monthly["monthly_avg_fine"].fillna(0)
+    monthly = monthly.reset_index()
+
+    monthly["monthly_violation_count"] = monthly["monthly_violation_count"].clip(upper=300)
+    
+    calendar_months = len(monthly)
+    missing_added   = calendar_months - observed_months
+
+    print(f" Observed months (with violations): {observed_months}")
+    print(f" Full calendar months : {calendar_months}")
+    print(f" Missing months filled with zeros: {missing_added}")
+    print(f" Avg monthly violations: {monthly['monthly_violation_count'].mean():.1f}")
+    print(f" Max monthly violations: {monthly['monthly_violation_count'].max():.0f}")
+    print(f" Min monthly violations: {monthly['monthly_violation_count'].min():.0f}")
+
+    return monthly
+
+
 # =============================================================================
-# STEP 4: CREATE TIME SERIES FEATURES
+# STEP 4: FEATURE ENGINEERING
 # =============================================================================
- 
-def create_time_series_features(daily):
+
+def create_features(monthly):
     """
-    WHY LAG FEATURES?
-    A lag feature is simply "yesterday's value" (lag_1), "7 days ago" (lag_7), etc.
-    They let the model answer: "revenue tends to be similar to what it was last week."
-    Without lag features, the model has no memory of the past — it can't do time series.
- 
-    WHY ROLLING FEATURES?
-    Rolling mean/std smooth out day-to-day noise and capture trends:
-    - rolling_mean_7: "what was the average revenue over the past week?"
-    - rolling_std_7:  "how volatile was revenue over the past week?"
- 
-    WHY CALENDAR FEATURES?
-    Revenue follows predictable calendar patterns:
-    - More tickets issued mid-week vs weekends
-    - More violations in Q2 (spring/summer) than winter
-    These are free information the model can use.
- 
-    IMPORTANT — NO DATA LEAKAGE:
-    All lag and rolling features use .shift(1) or later, meaning they only
-    look at PAST values. We never let the model see the future when training.
+    LAG FEATURES — model memory of past months:
+      lag_1 : violations last month
+      lag_3 : violations 3 months ago (one quarter)
+      lag_6 : violations 6 months ago (half year)
+
+    ROLLING FEATURES — recent trend and volatility:
+      rolling_mean_3 : avg violations over past 3 months
+      rolling_mean_6 : avg violations over past 6 months
+      rolling_std_3  : volatility over past 3 months
+
+    CALENDAR FEATURES:
+      year, month, quarter
+
+    NO DATA LEAKAGE: all lag/rolling use .shift(1) minimum —
+    the model never sees the current month's count while training.
     """
-    print("\n[STEP 4] Creating time series features...")
- 
-    df = daily.copy()
- 
-    # --- Lag features ---
-    # shift(1) = value from 1 day ago, shift(7) = 7 days ago, etc.
-    df["lag_1_revenue"]  = df[TARGET_COL].shift(1)
-    df["lag_7_revenue"]  = df[TARGET_COL].shift(7)
-    df["lag_30_revenue"] = df[TARGET_COL].shift(30)
- 
-    # --- Rolling features ---
-    # min_periods=1 avoids NaN at the start of the series
-    # closed="left" ensures we never include the current day in the window (no leakage)
-    df["rolling_mean_7_revenue"]  = df[TARGET_COL].shift(1).rolling(window=7,  min_periods=1).mean()
-    df["rolling_mean_30_revenue"] = df[TARGET_COL].shift(1).rolling(window=30, min_periods=1).mean()
-    df["rolling_std_7_revenue"]   = df[TARGET_COL].shift(1).rolling(window=7,  min_periods=1).std().fillna(0)
- 
-    # --- Calendar features ---
-    df["day_of_week"] = df["issue_date"].dt.dayofweek   # 0=Monday, 6=Sunday
-    df["month"]       = df["issue_date"].dt.month
-    df["quarter"]     = df["issue_date"].dt.quarter
-    df["is_weekend"]  = (df["day_of_week"] >= 5).astype(int)
- 
-    # Drop rows with NaN introduced by lag features (first 30 rows)
+    print("\n" + "="*60)
+    print("STEP 4: FEATURE ENGINEERING")
+    print("="*60)
+
+    df = monthly.copy()
+
+    # log1p transform: compresses the large spikes (e.g. 356 violations in one month)
+    # so training doesn't fixate on outlier months. expm1() reverses it after prediction.
+    df[LOG_TARGET] = np.log1p(df[TARGET_COL])
+    print(f"  log1p transform: '{TARGET_COL}' -> '{LOG_TARGET}'")
+
+    # Lag features (on log scale to match training target)
+    df["lag_1_count"] = df[LOG_TARGET].shift(1)
+    df["lag_3_count"] = df[LOG_TARGET].shift(3)
+    df["lag_6_count"] = df[LOG_TARGET].shift(6)
+
+    # Rolling features (.shift(1) before rolling = no leakage)
+    df["rolling_mean_3_count"] = (
+        df[LOG_TARGET].shift(1).rolling(window=3, min_periods=1).mean()
+    )
+    df["rolling_mean_6_count"] = (
+        df[LOG_TARGET].shift(1).rolling(window=6, min_periods=1).mean()
+    )
+    df["rolling_std_3_count"] = (
+        df[LOG_TARGET].shift(1).rolling(window=3, min_periods=1).std().fillna(0)
+    )
+
+    # Calendar features
+    df["year"]    = df["issue_date"].dt.year
+    df["month"]   = df["issue_date"].dt.month
+    df["quarter"] = df["issue_date"].dt.quarter
+
+    # Drop NaN rows from lag_6 (first 6 months)
     before = len(df)
     df = df.dropna().reset_index(drop=True)
     dropped = before - len(df)
-    print(f"  Dropped {dropped} rows due to lag/rolling NaN (expected).")
-    print(f"  Usable rows for modeling: {len(df)}")
- 
-    features_created = [
-        "lag_1_revenue", "lag_7_revenue", "lag_30_revenue",
-        "rolling_mean_7_revenue", "rolling_mean_30_revenue", "rolling_std_7_revenue",
-        "day_of_week", "month", "quarter", "is_weekend"
+    print(f"  Dropped {dropped} rows for lag NaN (first {dropped} months).")
+    print(f"  Usable months for modeling: {len(df)}")
+
+    features = [
+        "lag_1_count", "lag_3_count", "lag_6_count",
+        "rolling_mean_3_count", "rolling_mean_6_count", "rolling_std_3_count",
+        "year", "month", "quarter",
     ]
-    print(f"Features created: {features_created}")
-    return df, features_created
- 
- 
+    print(f"Features ({len(features)}): {features}")
+    return df, features
+
+
 # =============================================================================
-# STEP 5: TRAIN / TEST SPLIT (TIME-BASED)
+# STEP 5: TIME-BASED TRAIN/TEST SPLIT
 # =============================================================================
- 
+
 def time_based_split(df, features):
     """
-    WHY TIME-BASED SPLIT?
-    In regular ML we shuffle data randomly. For time series, shuffling is WRONG —
-    it creates data leakage: the model would train on "future" data and test on
-    "past" data, making accuracy look great but the model useless in practice.
- 
-    Instead we cut the timeline at 80%:
-      - Everything before the cutoff → training set
-      - Everything after              → test set
-    This simulates how the model will actually be used: trained on history,
-    predicting the future.
+    First 80% of months -> training. Last 20% -> test. NO shuffle.
+    Shuffling would let the model train on future months and test on past ones,
+    making accuracy look good but the model useless in practice.
     """
-    print("\n[STEP 5] Time-based train/test split (80/20, no shuffle)...")
- 
+    print("\n" + "="*60)
+    print("STEP 5: TIME-BASED TRAIN/TEST SPLIT (80/20)")
+    print("="*60)
+
     split_idx = int(len(df) * TRAIN_RATIO)
     train = df.iloc[:split_idx].copy()
     test  = df.iloc[split_idx:].copy()
- 
-    print(f" Train: {len(train)} days  ({train['issue_date'].min().date()} -> {train['issue_date'].max().date()})")
-    print(f" Test:  {len(test)} days  ({test['issue_date'].min().date()} -> {test['issue_date'].max().date()})")
- 
+
+    print(f" Train: {len(train)} months  "
+          f"({train['issue_date'].min().date()} to {train['issue_date'].max().date()})")
+    print(f" Test:  {len(test)} months  "
+          f"({test['issue_date'].min().date()} to {test['issue_date'].max().date()})")
+    print(f" Train count range: {train[TARGET_COL].min():.0f} - {train[TARGET_COL].max():.0f}")
+    print(f" Test  count range: {test[TARGET_COL].min():.0f} - {test[TARGET_COL].max():.0f}")
+
     X_train = train[features]
-    y_train = train[TARGET_COL]
+    y_train = train[LOG_TARGET]
     X_test  = test[features]
-    y_test  = test[TARGET_COL]
- 
+    y_test  = test[LOG_TARGET]
+
     return train, test, X_train, y_train, X_test, y_test
- 
- 
 # =============================================================================
-# STEP 6: TRAIN XGBOOST MODEL
+# STEP 6: TRAIN MODEL
 # =============================================================================
- 
+
 def train_model(X_train, y_train):
-    """Train the XGBoost regressor on the training set."""
-    print("\n[STEP 6] Training XGBoost model...")
+    print("\n" + "="*60)
+    print("STEP 6: TRAINING XGBOOST REGRESSOR")
+    print("="*60)
     print(f" Parameters: {XGBOOST_PARAMS}")
- 
+
     model = XGBRegressor(**XGBOOST_PARAMS)
     model.fit(X_train, y_train)
- 
+
     print("[OK] Model trained.")
     return model
- 
- 
+
+
 # =============================================================================
-# STEP 7: EVALUATE MODEL
+# STEP 7: EVALUATE
 # =============================================================================
- 
+
 def evaluate_model(model, X_test, y_test, test, features):
     """
-    Calculate RMSE, MAE, and R² on the hold-out test set.
- 
-    RMSE  — Root Mean Squared Error: average prediction error in dollars.
-            Penalizes large errors more than small ones.
-    MAE   — Mean Absolute Error: average absolute dollar difference.
-            More intuitive / easier to explain.
-    R²    — How much variance the model explains (1.0 = perfect, 0 = no better than mean).
+    Predict in log space, convert back with expm1(), report metrics in
+    real violation counts. R² computed in log space (model's native scale).
     """
-    print("\n[STEP 7] Evaluating model...")
- 
-    y_pred = model.predict(X_test)
-    # Clamp predictions to >= 0 (revenue can't be negative)
-    y_pred = np.maximum(y_pred, 0)
- 
-    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-    mae  = mean_absolute_error(y_test, y_pred)
-    r2   = r2_score(y_test, y_pred)
- 
-    print(f"\n  ── Evaluation Metrics ──────────────────")
-    print(f"  RMSE : ${rmse:,.2f}")
-    print(f"  MAE  : ${mae:,.2f}")
-    print(f"  R²   : {r2:.4f}")
- 
-    # Feature importance
-    importance = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
-    print(f"\n  ── Feature Importance ──────────────────")
+    print("\n" + "="*60)
+    print("STEP 7: EVALUATION")
+    print("="*60)
+
+    y_pred_log = model.predict(X_test)
+    r2 = r2_score(y_test.values, y_pred_log)
+
+    # Convert back to violation counts
+    y_pred = np.maximum(np.round(np.expm1(y_pred_log)), 0)
+    y_true = np.expm1(y_test.values)
+
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    mae  = mean_absolute_error(y_true, y_pred)
+
+    print(f"\n RMSE: {rmse:.1f} violations (avg prediction error)")
+    print(f"MAE: {mae:.1f} violations (avg absolute error)")
+    print(f"R2: {r2:.4f} (fit in log space)")
+
+    importance = pd.Series(
+        model.feature_importances_, index=features
+    ).sort_values(ascending=False)
+
+    print(f"\n Feature Importance:")
     for feat, score in importance.items():
-        bar = "█" * int(score * 40)
-        print(f"  {feat:<30} {score:.4f}  {bar}")
- 
-    return y_pred, rmse, mae, r2, importance
- 
- 
+        bar = "+" * int(score * 40)
+        print(f"  {feat:<28} {score:.4f}  {bar}")
+
+    return y_pred, y_true, rmse, mae, r2, importance
+
+
 # =============================================================================
 # STEP 8: SAVE OUTPUTS
 # =============================================================================
- 
-def save_outputs(test, y_pred, rmse, mae, r2, importance, train, features):
-    """Save predictions CSV, metrics text file, and actual vs predicted plot."""
-    print("\n[STEP 8] Saving output files...")
- 
-    # ---- 1. Predictions CSV ----
-    predictions_df = test[["issue_date", TARGET_COL]].copy()
-    predictions_df["predicted_total_charges"] = y_pred
-    predictions_df["error"] = predictions_df[TARGET_COL] - predictions_df["predicted_total_charges"]
-    predictions_df.to_csv(OUTPUT_PREDICTIONS, index=False)
-    print(f" [1] Saved predictions -> '{OUTPUT_PREDICTIONS}'")
- 
-    # ---- 2. Metrics text file ----
+
+def save_outputs(test, y_pred, y_true, rmse, mae, r2, importance, train):
+    print("\n" + "="*60)
+    print("STEP 8: SAVING OUTPUTS")
+    print("="*60)
+
+    # 1. Predictions CSV
+    pred_df = test[["issue_date"]].copy()
+    pred_df["actual_violation_count"]    = y_true.astype(int)
+    pred_df["predicted_violation_count"] = y_pred.astype(int)
+    pred_df["error"] = (y_true - y_pred).astype(int)
+    pred_df.to_csv(OUTPUT_PREDICTIONS, index=False)
+    print(f"  [1] Saved -> '{OUTPUT_PREDICTIONS}'")
+
+    # 2. Metrics text file
     with open(OUTPUT_METRICS, "w") as f:
-        f.write("XGBoost Time Series Model — Evaluation Metrics\n")
+        f.write("XGBoost Monthly Time Series -- Evaluation Metrics\n")
         f.write("=" * 50 + "\n\n")
-        f.write(f"Target variable: {TARGET_COL}\n")
-        f.write(f"Training days: {len(train)}\n")
-        f.write(f"Test days: {len(test)}\n")
-        f.write(f"Train date range: {train['issue_date'].min().date()} -> {train['issue_date'].max().date()}\n")
-        f.write(f"Test date range: {test['issue_date'].min().date()} -> {test['issue_date'].max().date()}\n\n")
-        f.write(f"RMSE: ${rmse:,.2f}\n")
-        f.write(f"MAE: ${mae:,.2f}\n")
-        f.write(f"R²: {r2:.4f}\n\n")
+        f.write(f"Target: {TARGET_COL}\n")
+        f.write(f"Data window: {START_DATE} onward\n")
+        f.write(f"Training months: {len(train)}\n")
+        f.write(f"Test months: {len(test)}\n")
+        f.write(f"Train range: {train['issue_date'].min().date()} to "
+                f"{train['issue_date'].max().date()}\n")
+        f.write(f"Test range: {test['issue_date'].min().date()} to "
+                f"{test['issue_date'].max().date()}\n\n")
+        f.write(f"RMSE: {rmse:.1f} violations\n")
+        f.write(f"MAE: {mae:.1f} violations\n")
+        f.write(f"R2: {r2:.4f}\n\n")
         f.write("Feature Importance:\n")
         for feat, score in importance.items():
-            f.write(f"  {feat:<30} {score:.4f}\n")
+            f.write(f"  {feat:<28} {score:.4f}\n")
         f.write("\nModel Parameters:\n")
         for k, v in XGBOOST_PARAMS.items():
             f.write(f"  {k}: {v}\n")
-    print(f" [2] Saved metrics -> '{OUTPUT_METRICS}'")
- 
-    # ---- 3. Actual vs Predicted plot ----
+    print(f"  [2] Saved -> '{OUTPUT_METRICS}'")
+
+    # 3. Plot
     fig, axes = plt.subplots(2, 1, figsize=(14, 9))
-    fig.suptitle("XGBoost Time Series — NYC Parking Violation Revenue", fontsize=14, fontweight="bold")
- 
-    # Top chart: full timeline (train shaded, test highlighted)
+    fig.suptitle(
+        "XGBoost Monthly Time Series -- NYC Parking Violation Count",
+        fontsize=14, fontweight="bold"
+    )
+
     ax1 = axes[0]
     ax1.plot(train["issue_date"], train[TARGET_COL],
-             color="#adb5bd", linewidth=1, label="Train (actual)", alpha=0.7)
-    ax1.plot(test["issue_date"], test[TARGET_COL],
+             color="#adb5bd", linewidth=1, label="Train (actual)", alpha=0.8)
+    ax1.plot(test["issue_date"], y_true,
              color="#2196F3", linewidth=1.5, label="Test (actual)")
     ax1.plot(test["issue_date"], y_pred,
              color="#F44336", linewidth=1.5, linestyle="--", label="Test (predicted)")
-    ax1.axvline(x=test["issue_date"].min(), color="black", linestyle=":", linewidth=1, alpha=0.5)
+    ax1.axvline(x=test["issue_date"].min(), color="black",
+                linestyle=":", linewidth=1, alpha=0.5, label="Train/Test split")
     ax1.set_title("Full Timeline: Train + Test Actual vs Predicted")
-    ax1.set_ylabel("Daily Total Charges ($)")
+    ax1.set_ylabel("Monthly Violation Count")
     ax1.legend(loc="upper left", fontsize=9)
     ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
-    ax1.xaxis.set_major_locator(mdates.MonthLocator())
+    ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
     plt.setp(ax1.xaxis.get_majorticklabels(), rotation=30, ha="right")
     ax1.grid(True, alpha=0.3)
- 
-    # Bottom chart: test period zoomed in
+
     ax2 = axes[1]
-    ax2.plot(test["issue_date"], test[TARGET_COL],
-             color="#2196F3", linewidth=2, label="Actual", marker="o", markersize=3)
+    ax2.plot(test["issue_date"], y_true,
+             color="#2196F3", linewidth=2, label="Actual",
+             marker="o", markersize=6)
     ax2.plot(test["issue_date"], y_pred,
-             color="#F44336", linewidth=2, linestyle="--", label="Predicted", marker="x", markersize=3)
-    ax2.fill_between(test["issue_date"], test[TARGET_COL], y_pred, alpha=0.15, color="#9C27B0")
-    ax2.set_title(f"Test Period Zoom — RMSE: ${rmse:,.2f}  |  MAE: ${mae:,.2f}  |  R²: {r2:.4f}")
-    ax2.set_ylabel("Daily Total Charges ($)")
-    ax2.set_xlabel("Date")
+             color="#F44336", linewidth=2, linestyle="--", label="Predicted",
+             marker="x", markersize=6)
+    ax2.fill_between(test["issue_date"], y_true, y_pred,
+                     alpha=0.15, color="#9C27B0")
+    ax2.set_title(
+        f"Test Period -- RMSE: {rmse:.1f}  |  MAE: {mae:.1f}  |  R2: {r2:.4f}"
+    )
+    ax2.set_ylabel("Monthly Violation Count")
+    ax2.set_xlabel("Month")
     ax2.legend(loc="upper left", fontsize=9)
-    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-    ax2.xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+    ax2.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
     plt.setp(ax2.xaxis.get_majorticklabels(), rotation=30, ha="right")
     ax2.grid(True, alpha=0.3)
- 
+
     plt.tight_layout()
     plt.savefig(OUTPUT_PLOT, dpi=150, bbox_inches="tight")
     plt.close()
-    print(f" [3] Saved plot ->'{OUTPUT_PLOT}'")
- 
- 
+    print(f"  [3] Saved -> '{OUTPUT_PLOT}'")
+
+
 # =============================================================================
-# STEP 9: PRINT FINAL SUMMARY
+# STEP 9: SUMMARY
 # =============================================================================
- 
-def print_summary(daily, train, test, rmse, mae, r2, importance, features):
+
+def print_summary(monthly, train, test, rmse, mae, r2, importance):
     print("\n" + "="*60)
     print("FINAL SUMMARY")
     print("="*60)
-    print(f"Dataset days after aggregation: {len(daily)}")
-    print(f"Days used after lag drop: {len(train) + len(test)}")
-    print(f"Training days: {len(train)}")
-    print(f"Test days: {len(test)}")
-    print(f"Train range: {train['issue_date'].min().date()} -> {train['issue_date'].max().date()}")
-    print(f"Test range: {test['issue_date'].min().date()} -> {test['issue_date'].max().date()}")
-    print(f"\n RMSE: ${rmse:,.2f}")
-    print(f"MAE: ${mae:,.2f}")
-    print(f"R²: {r2:.4f}")
-    print(f"\n Top 3 most important features:")
+    obs = (monthly[TARGET_COL] > 0).sum()
+    print(f"  Data window: {START_DATE} onward")
+    print(f"  Observed months with violations: {obs}")
+    print(f"  Full calendar months (continuous) : {len(monthly)}")
+    print(f"  Months after lag drop: {len(train) + len(test)}")
+    print(f"  Training months: {len(train)}")
+    print(f"  Test months: {len(test)}")
+    print(f"  Train range: {train['issue_date'].min().date()} to {train['issue_date'].max().date()}")
+    print(f"  Test range: {test['issue_date'].min().date()} to {test['issue_date'].max().date()}")
+    print(f"\n  RMSE: {rmse:.1f} violations")
+    print(f"  MAE: {mae:.1f} violations")
+    print(f"  R2: {r2:.4f}")
+    print(f"\n  Top 3 features:")
     for feat, score in importance.head(3).items():
-        print(f" -> {feat} ({score:.4f})")
-    print(f"\n Outputs saved:")
+        print(f" -> {feat}  ({score:.4f})")
+    print(f"\n  Output files:")
     print(f" -> {OUTPUT_PREDICTIONS}")
     print(f" -> {OUTPUT_METRICS}")
-    print(f" ->{OUTPUT_PLOT}")
+    print(f" -> {OUTPUT_PLOT}")
     print("="*60 + "\n")
- 
- 
+
+
 # =============================================================================
 # MAIN
 # =============================================================================
- 
+
 def main():
-    # Step 1: Load
     df = load_data(INPUT_FILE)
- 
-    # Step 2: Parse dates
-    df = parse_dates(df)
- 
-    # Step 3: Aggregate by day
-    daily = aggregate_by_day(df)
- 
-    # Step 4: Create time series features
-    daily_featured, features = create_time_series_features(daily)
- 
-    # Step 5: Split
-    train, test, X_train, y_train, X_test, y_test = time_based_split(daily_featured, features)
- 
-    # Step 6: Train
-    model = train_model(X_train, y_train)
- 
-    # Step 7: Evaluate
-    y_pred, rmse, mae, r2, importance = evaluate_model(model, X_test, y_test, test, features)
- 
-    # Step 8: Save outputs
-    save_outputs(test, y_pred, rmse, mae, r2, importance, train, features)
- 
-    # Step 9: Summary
-    print_summary(daily, train, test, rmse, mae, r2, importance, features)
- 
- 
+    df = parse_and_filter(df)
+    monthly = aggregate_by_month(df)
+    monthly_feat, features = create_features(monthly)
+    train, test, X_tr, y_tr, X_te, y_te = time_based_split(monthly_feat, features)
+    model = train_model(X_tr, y_tr)
+    y_pred, y_true, rmse, mae, r2, imp = evaluate_model(model, X_te, y_te, test, features)
+    save_outputs(test, y_pred, y_true, rmse, mae, r2, imp, train)
+    print_summary(monthly, train, test, rmse, mae, r2, imp)
 if __name__ == "__main__":
     main()
- 
