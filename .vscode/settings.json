@@ -1,0 +1,9 @@
+{
+  "python-envs.defaultEnvManager": "ms-python.python:conda",
+  "python-envs.defaultPackageManager": "ms-python.python:conda",
+  "python.defaultInterpreterPath": "C:\\Users\\andre\\anaconda3\\envs\\bigdata\\python.exe",
+  "code-runner.executorMap": {
+    "python": "C:\\Users\\andre\\anaconda3\\envs\\bigdata\\python.exe -u"
+  },
+  "code-runner.runInTerminal": true
+}
