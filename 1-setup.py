@@ -1,17 +1,18 @@
-try:
-    import pandas
-    print("Pandas is installed")
-except ImportError:
-    print("Pandas is not installed")
+#Component 1: Set Up
+##1a: Set up a virtual enviroment
 
-try:
-    import requests
-    print("Requests is installed")
-except ImportError:
-    print("Requests is not installed")
+##1b: In the terminal insert the following: pip install pandas requests sqlalchemy numpy scipy sklearn matplotlib prophet xgboost
 
-try:
-    import sqlalchemy
-    print("SQLAlchemy is installed")
-except ImportError:
-    print("SQLAlchemy is not installed")
+##1c: Run the following code to determine if any of the 
+
+modules = [
+    "pandas", "requests", "sqlalchemy", "numpy", "scipy",
+    "sklearn", "matplotlib", "prophet", "xgboost"
+]
+
+for module in modules:
+    try:
+        __import__(module)
+        print(f"{module} is installed")
+    except ImportError:
+        print(f"{module} is not installed")
