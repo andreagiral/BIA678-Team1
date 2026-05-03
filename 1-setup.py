@@ -3,7 +3,7 @@
 
 ##1b: In the terminal insert the following: pip install pandas requests sqlalchemy numpy scipy sklearn matplotlib prophet xgboost
 
-##1c: Run the following code to determine if any of the 
+##1c: Run the following code to determine if any of the packages were not installed propertly
 
 modules = [
     "pandas", "requests", "sqlalchemy", "numpy", "scipy",
