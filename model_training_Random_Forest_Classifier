@@ -1,0 +1,35 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestClassifier
+
+# 1. Load Data
+df = pd.read_csv('model_ready_features.csv')
+target = 'violation_status_encoded'
+
+# Separate features (X) and target (y)
+X = df.drop(columns=[target])
+y = df[target]
+
+# 2. Train Random Forest
+rf = RandomForestClassifier(n_estimators=100, random_state=42)
+rf.fit(X, y)
+
+# 3. Calculate Feature Importance
+importances = pd.DataFrame({
+    'Feature': X.columns, 
+    'Importance': rf.feature_importances_
+}).sort_values(by='Importance', ascending=False)
+
+# 4. Save to CSV
+importances.to_csv('feature_importance.csv', index=False)
+
+# 5. Generate Visualization
+# We use the top 10 features for a clean chart
+plot_data = importances.head(10).sort_values(by='Importance', ascending=True)
+
+plt.barh(plot_data['Feature'], plot_data['Importance'])
+plt.xlabel('Importance Score')
+plt.ylabel('Feature')
+plt.title('Top 10 Feature Importances')
+plt.tight_layout()
+plt.savefig('feature_importance.png')
