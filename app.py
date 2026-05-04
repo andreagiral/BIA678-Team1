@@ -4,8 +4,14 @@ from PIL import Image
 
 st.set_page_config(page_title="NYC Violations Dashboard", layout="wide")
 
-st.title("NYC Parking & Camera Violations Dashboard")
-st.subtitle("BIA 678-WS| Team 1: Andrea Giraldo-Puerta, Olga Melissa Avram & Jeffrey Cheng")
+st.markdown(
+    "<h1 style='text-align: center;'>NYC Parking & Camera Violations Dashboard</h1>",
+    unsafe_allow_html=True
+)
+st.markdown(
+    "<h5 style='text-align: center;'>BIA 678-WS | Team 1: Andrea Giraldo-Puerta, Olga Melissa Avram & Jeffrey Cheng</h5>",
+    unsafe_allow_html=True
+)
 
 st.markdown("""
 <style>
