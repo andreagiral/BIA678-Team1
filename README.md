@@ -19,8 +19,9 @@ python 2-data_ingestion.py
 ----
 
 ## A Repository Structure and Script Organization
+
+```bash
 BIA678-TEAM1/
-│
 ├── main/
 │   └── README.md
 │
@@ -59,16 +60,16 @@ BIA678-TEAM1/
     ├── app.py
     ├── prophet1.png
     ├── prophet2.png
-    └── (model outputs reused from model-training) 
-	│   
-├── clustered_data_KMeans_clustering.csv
-├── elbow-method-for-kmeans-clustering.png
-├── feature_engineered_violations.csv
-├── feature_importance_random_forest.csv
-├── feature_importance_random_forest.png
-├── xgboost_monthly_actual_vs_predicted.png
-├── xgboost_monthly_metrics.txt
-├── xgboost_monthly_predictions.csv
+    ├── clustered_data_KMeans_clustering.csv
+    ├── elbow-method-for-kmeans-clustering.png
+    ├── feature_engineered_violations.csv
+    ├── feature_importance_random_forest.csv
+    ├── feature_importance_random_forest.png
+    ├── xgboost_monthly_actual_vs_predicted.png
+    ├── xgboost_monthly_metrics.txt
+    └── xgboost_monthly_predictions.csv
+```
+
 --- 
 # 🚗 NYC Violations Dashboard — Live Demo Guide
 
@@ -131,7 +132,7 @@ https://nyc-violations-dashboard.streamlit.app
 
 ---
 
-## 📁 Required Files
+## Required Files
 
 ```
 app.py
@@ -159,46 +160,45 @@ xgboost_monthly_actual_vs_predicted.png
 ## Demo Talking Point
 
 > “This dashboard integrates our full pipeline, allowing stakeholders to explore violation patterns, understand model outputs, and gain insights into revenue and enforcement trends.”
+---
+
+## Organization
+
+The project repository is organized using separate GitHub branches to modularize each stage of the pipeline and improve reproducibility.
+
+### 🔹 Main Branch
+- Contains the main `README.md` with project overview.
+
+### 🔹 Setup Branch
+- `setup.py` — defines required packages and environment setup.
+
+### 🔹 Data Ingestion Branch
+- `data-ingestion.py` — extracts NYC parking violation data from the Socrata API.
+- `data_2026-04-36.csv` — raw output dataset.
+
+### 🔹 Feature Engineering Branch
+- `data-ingestion.py` — included for reproducibility.
+- `feature-engineering.py` — cleans data and creates features.
+- `cleaned_violations.csv` — cleaned dataset.
+- `feature_engineered_violations.csv` — full engineered dataset.
+- `model_ready_features.csv` — dataset for supervised models.
+- `clustering_features.csv` — dataset for clustering.
+- `pipeline_output_new.txt` — pipeline logs.
+
+### 🔹 Model Training Branch
+- `model-training-kmeans.py` — K-Means clustering.
+- `model-training-random-forest-classifier.py` — Random Forest classification.
+- `prophet-model.py` — Prophet forecasting.
+- `xgboost-time-series.py` — XGBoost time series model.
+- Outputs include:
+  - Cluster assignments
+  - Feature importance (CSV + PNG)
+  - XGBoost predictions and metrics
+  - Elbow method visualization
+
+### 🔹 Dashboard Reporting Branch
+- `app.py` — Streamlit dashboard.
+- Uses model outputs for visualization.
+- Includes Prophet plots (`prophet1.png`, `prophet2.png`).
 
 ---
-The project repository was organized using separate GitHub branches to keep each stage of the pipeline modular and easier to track.
-Main Branch
-The main branch contains the project README.md file, which provides a general overview of the repository.
-Setup Branch
-The setup branch contains the required installation/setup file:
-•	setup.py — defines the required packages and setup configuration for running the project.
-Data Ingestion Branch
-The data-ingestion branch contains the script used to extract the NYC parking violation data:
-•	data-ingestion.py — retrieves violation-level records from the NYC OpenData Socrata API.
-•	data_2026-04-36.csv — output file generated from the data ingestion process.
-Feature Engineering Branch
-The feature-engineering branch contains the data ingestion script, feature engineering script, and generated feature outputs:
-•	data-ingestion.py — copy of the ingestion script used to maintain reproducibility.
-•	feature-engineering.py — cleans the raw violation data and creates engineered features.
-•	cleaned_violations.csv — cleaned dataset after preprocessing.
-•	feature_engineered_violations.csv — full engineered dataset.
-•	model_ready_features.csv — final feature set prepared for supervised modeling.
-•	clustering_features.csv — feature subset prepared for clustering analysis.
-•	pipeline_output_new.txt — saved terminal/log output from the feature engineering pipeline.
-Model Training Branch
-The model-training branch contains the scripts and outputs for the machine learning models:
-•	model-training-kmeans.py — K-Means clustering model script.
-•	model-training-random-forest-classifier.py — Random Forest classification model script.
-•	prophet-model.py — Prophet time series forecasting model script.
-•	xgboost-time-series.py — XGBoost monthly time series model script.
-•	clustered_data_KMeans_clustering.csv — output dataset with K-Means cluster assignments.
-•	elbow-method-for-kmean-clustering.png — elbow plot used to evaluate K-Means cluster selection.
-•	feature_engineered_violations.csv — input dataset used for modeling.
-•	feature_importance_random_forest.csv — Random Forest feature importance output.
-•	feature_importance_random_forest.png — Random Forest feature importance visualization.
-•	xgboost_monthly_actual_vs_predicted.png — XGBoost actual vs. predicted monthly violation count plot.
-•	xgboost_monthly_metrics.txt — XGBoost evaluation metrics and feature importance.
-•	xgboost_monthly_predictions.csv — XGBoost test-period prediction outputs.
-•	README.md — model training branch documentation.
-Dashboard Reporting Branch
-The dashboard-reporting branch contains the Streamlit dashboard and visual/model outputs used for reporting:
-•	app.py — Streamlit dashboard application.
-•	Modeling outputs from the model-training branch — used to populate dashboard visuals and summaries.
-•	prophet1.png — Prophet visualization output.
-•	prophet2.png — Prophet visualization output.
-This branch structure allowed the project to separate setup, ingestion, feature engineering, modeling, and dashboard reporting into clear stages while preserving outputs for reproducibility.
